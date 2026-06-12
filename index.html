@@ -191,6 +191,7 @@
 
     <div class="card" id="results-card">
       <button id="copy-btn" style="display:none;margin-bottom:1rem;">Copy EURs</button>
+      <button id="copy-all-btn" style="display:none;margin-bottom:1rem;margin-left:0.5rem;">Copy All</button>
       <div id="results-container">
         <div class="empty-state">
           Select one or more PDF invoices and click <strong>Parse Invoices</strong> to begin.
@@ -346,6 +347,7 @@
       const warningsEl = document.getElementById('warnings');
       const container = document.getElementById('results-container');
       const copyBtn = document.getElementById('copy-btn');
+      const copyAllBtn = document.getElementById('copy-all-btn');
 
       // Warnings
       if (warningCount > 0) {
@@ -359,9 +361,10 @@
       // Store results for copy
       window._lastResults = results;
 
-      // Show copy button only if at least one valid EUR value
+      // Show/hide copy buttons
       const hasEur = results.some(r => r.eurEquivalent !== null);
       copyBtn.style.display = hasEur ? '' : 'none';
+      copyAllBtn.style.display = results.length > 0 ? '' : 'none';
 
       // Build table
       let html = `
@@ -417,8 +420,37 @@
       });
     }
 
+    function copyAllValues() {
+      const results = window._lastResults || [];
+      if (results.length === 0) return;
+
+      const headers = ['Filename', 'Currency', 'Amount', 'Conversion Rate', 'EUR Equivalent'];
+      const rows = [headers.join('\t')];
+
+      for (const r of results) {
+        const cells = [
+          r.filename,
+          r.currency || '',
+          r.amount !== null ? r.amount.toFixed(2) : '',
+          r.conversionRate !== null ? r.conversionRate.toFixed(5) : '',
+          r.eurEquivalent !== null ? r.eurEquivalent.toFixed(2) : ''
+        ];
+        rows.push(cells.join('\t'));
+      }
+
+      navigator.clipboard.writeText(rows.join('\n')).then(() => {
+        const btn = document.getElementById('copy-all-btn');
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 2000);
+      }).catch(err => {
+        console.error('Clipboard write failed:', err);
+      });
+    }
+
     // ── Event handlers ────────────────────────────────────────
     document.getElementById('copy-btn').addEventListener('click', copyEurValues);
+    document.getElementById('copy-all-btn').addEventListener('click', copyAllValues);
 
     document.getElementById('parse-btn').addEventListener('click', async () => {
       const fileInput = document.getElementById('file-input');
@@ -438,6 +470,7 @@
       btn.innerHTML = '<span class="spinner" style="display:inline-block"></span>Parsing…';
       document.getElementById('warnings').classList.remove('visible');
       document.getElementById('copy-btn').style.display = 'none';
+      document.getElementById('copy-all-btn').style.display = 'none';
       document.getElementById('results-container').innerHTML =
         '<div class="empty-state">Parsing invoices…</div>';
 
