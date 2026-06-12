@@ -309,7 +309,7 @@
 
           // Compute EUR equivalent
           if (row.amount !== null && row.conversionRate !== null) {
-            row.eurEquivalent = +(row.amount * row.conversionRate).toFixed(2);
+            row.eurEquivalent = +(row.amount / row.conversionRate).toFixed(2);
           }
 
           // Count missing fields
