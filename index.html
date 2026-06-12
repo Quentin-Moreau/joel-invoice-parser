@@ -190,6 +190,7 @@
     <div class="warnings" id="warnings"></div>
 
     <div class="card" id="results-card">
+      <button id="copy-btn" style="display:none;margin-bottom:1rem;">Copy EURs</button>
       <div id="results-container">
         <div class="empty-state">
           Select one or more PDF invoices and click <strong>Parse Invoices</strong> to begin.
@@ -344,6 +345,7 @@
     function renderResults({ results, warningCount }) {
       const warningsEl = document.getElementById('warnings');
       const container = document.getElementById('results-container');
+      const copyBtn = document.getElementById('copy-btn');
 
       // Warnings
       if (warningCount > 0) {
@@ -353,6 +355,13 @@
       } else {
         warningsEl.classList.remove('visible');
       }
+
+      // Store results for copy
+      window._lastResults = results;
+
+      // Show copy button only if at least one valid EUR value
+      const hasEur = results.some(r => r.eurEquivalent !== null);
+      copyBtn.style.display = hasEur ? '' : 'none';
 
       // Build table
       let html = `
@@ -389,7 +398,28 @@
       return div.innerHTML;
     }
 
+    // ── Copy to clipboard ────────────────────────────────────
+    function copyEurValues() {
+      const results = window._lastResults || [];
+      const values = results
+        .filter(r => r.eurEquivalent !== null)
+        .map(r => r.eurEquivalent.toFixed(2));
+
+      if (values.length === 0) return;
+
+      navigator.clipboard.writeText(values.join('\n')).then(() => {
+        const btn = document.getElementById('copy-btn');
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 2000);
+      }).catch(err => {
+        console.error('Clipboard write failed:', err);
+      });
+    }
+
     // ── Event handlers ────────────────────────────────────────
+    document.getElementById('copy-btn').addEventListener('click', copyEurValues);
+
     document.getElementById('parse-btn').addEventListener('click', async () => {
       const fileInput = document.getElementById('file-input');
       const parserSelect = document.getElementById('parser-select');
@@ -407,6 +437,7 @@
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner" style="display:inline-block"></span>Parsing…';
       document.getElementById('warnings').classList.remove('visible');
+      document.getElementById('copy-btn').style.display = 'none';
       document.getElementById('results-container').innerHTML =
         '<div class="empty-state">Parsing invoices…</div>';
 
