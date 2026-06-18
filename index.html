@@ -208,6 +208,7 @@
       document.getElementById('parse-btn').disabled = true;
       throw new Error('pdf.js library (pdf-js.min.js) not loaded');
     }
+    <!-- BUILD:WORKER -->
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf-js.worker.min.js';
 
     // ── Parser interface (base class) ─────────────────────────
