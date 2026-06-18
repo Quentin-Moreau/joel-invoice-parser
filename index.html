@@ -202,6 +202,12 @@
 
   <script>
     // ── pdf.js setup ──────────────────────────────────────────
+    if (typeof pdfjsLib === 'undefined') {
+      document.getElementById('results-container').innerHTML =
+        '<div class="empty-state" style="color:var(--danger)">pdf.js library failed to load. Make sure <code>pdf-js.min.js</code> is in the same folder as this file.</div>';
+      document.getElementById('parse-btn').disabled = true;
+      throw new Error('pdf.js library (pdf-js.min.js) not loaded');
+    }
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf-js.worker.min.js';
 
     // ── Parser interface (base class) ─────────────────────────
@@ -488,6 +494,42 @@
     }
 
     // ── Copy to clipboard ────────────────────────────────────
+    function copyToClipboard(text, btnElement) {
+      // Try modern async Clipboard API first (requires HTTPS or localhost)
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showCopySuccess(btnElement);
+        }).catch(() => {
+          // Clipboard API failed (e.g., file:// protocol) — use fallback
+          fallbackCopy(text, btnElement);
+        });
+      } else {
+        fallbackCopy(text, btnElement);
+      }
+    }
+
+    function fallbackCopy(text, btnElement) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        showCopySuccess(btnElement);
+      } catch (err) {
+        console.error('Clipboard write failed:', err);
+      }
+      document.body.removeChild(textarea);
+    }
+
+    function showCopySuccess(btn) {
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = original; }, 2000);
+    }
+
     function copyEurValues() {
       const results = window._lastResults || [];
       const values = results
@@ -495,15 +537,7 @@
         .map(r => r.eurEquivalent.toFixed(2));
 
       if (values.length === 0) return;
-
-      navigator.clipboard.writeText(values.join('\n')).then(() => {
-        const btn = document.getElementById('copy-btn');
-        const original = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = original; }, 2000);
-      }).catch(err => {
-        console.error('Clipboard write failed:', err);
-      });
+      copyToClipboard(values.join('\n'), document.getElementById('copy-btn'));
     }
 
     function copyAllValues() {
@@ -524,14 +558,7 @@
         rows.push(cells.join('\t'));
       }
 
-      navigator.clipboard.writeText(rows.join('\n')).then(() => {
-        const btn = document.getElementById('copy-all-btn');
-        const original = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = original; }, 2000);
-      }).catch(err => {
-        console.error('Clipboard write failed:', err);
-      });
+      copyToClipboard(rows.join('\n'), document.getElementById('copy-all-btn'));
     }
 
     // ── Event handlers ────────────────────────────────────────

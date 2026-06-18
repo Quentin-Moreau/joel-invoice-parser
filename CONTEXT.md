@@ -29,7 +29,7 @@ The exchange rate printed on the Invoice that converts the Amount to EUR (e.g., 
 _Avoid_: FX rate, multiplier, factor
 
 **EUR equivalent**:
-A computed field: Amount × ConversionRate. Not present on the Invoice itself.
+A computed field: Amount / ConversionRate. Not present on the Invoice itself. French invoices express the conversion rate as "1 EUR = X foreign units", so EUR = Amount ÷ Rate.
 _Avoid_: Converted amount, EUR value
 
 ## Relationships
@@ -37,7 +37,7 @@ _Avoid_: Converted amount, EUR value
 - An **Invoice** has exactly one **Currency**, one **Amount**, and one **ConversionRate**
 - A **Parser** handles one vendor's Invoice layout
 - A **Batch** applies one **Parser** to one or more Invoices
-- The **EUR equivalent** is derived from Amount × ConversionRate
+- The **EUR equivalent** is derived from Amount / ConversionRate
 
 ## Example dialogue
 
