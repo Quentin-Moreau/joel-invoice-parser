@@ -206,9 +206,12 @@
 
     // ── Parser interface (base class) ─────────────────────────
     class InvoiceParser {
-      /** @param {string} text - Full extracted text from the PDF */
-      /** @returns {{ currency: string|null, amount: number|null, conversionRate: number|null }} */
-      parse(text) {
+      /**
+       * @param {Array<{str: string, x: number, y: number, width: number, height: number}>} content
+       *   Flattened TextContent items from all PDF pages, each with positional data.
+       * @returns {{ currency: string|null, amount: number|null, conversionRate: number|null }}
+       */
+      parse(content) {
         throw new Error('parse() must be implemented by subclass');
       }
 
@@ -218,46 +221,117 @@
       }
     }
 
+    // ── Spatial utilities ─────────────────────────────────────
+    /**
+     * Groups TextContent items into rows using y-coordinate tolerance.
+     * @param {Array<{str: string, x: number, y: number, width: number, height: number}>} items
+     * @param {number} tolerance - Max y-difference for items to be on the same row (default 2)
+     * @returns {Array<{y: number, items: Array}>} Rows sorted top-to-bottom (descending y), each with items sorted left-to-right
+     */
+    function groupItemsIntoRows(items, tolerance = 2) {
+      if (items.length === 0) return [];
+
+      // Sort by y descending (top of page = higher y), then by x ascending
+      const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+
+      const rows = [];
+      for (const item of sorted) {
+        // Find an existing row within tolerance
+        if (item.str.trim() === '') continue; // Skip empty strings
+        let placed = false;
+        for (const row of rows) {
+          if (Math.abs(row.y - item.y) <= tolerance) {
+            row.items.push(item);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          rows.push({ y: item.y, items: [item] });
+        }
+      }
+
+      // Sort each row's items left-to-right, rows top-to-bottom
+      for (const row of rows) {
+        row.items.sort((a, b) => a.x - b.x);
+      }
+      rows.sort((a, b) => b.y - a.y);
+
+      return rows;
+    }
+
+    /**
+     * Finds the item in a row that matches a regex pattern.
+     * @returns {object|null} The matching item, or null
+     */
+    function findItemInRow(row, pattern) {
+      return row.items.find(item => pattern.test(item.str)) || null;
+    }
+
+    /**
+     * Extracts values from the row immediately below a section header, bounded by x-range.
+     * @param {Array} rows - All rows from groupItemsIntoRows()
+     * @param {number} headerRowIndex - Index of the section header row
+     * @param {number} xMin - Left x-boundary (inclusive)
+     * @param {number|null} xMax - Right x-boundary (exclusive), or null for no bound
+     * @returns {Array<string>} String values from the next row, left-to-right, within x bounds
+     */
+    function extractValuesBelowSection(rows, headerRowIndex, xMin, xMax) {
+      const nextRowIndex = headerRowIndex + 1;
+      if (nextRowIndex >= rows.length) return [];
+
+      const nextRow = rows[nextRowIndex];
+      return nextRow.items
+        .filter(item => item.x >= xMin && (xMax === null || item.x < xMax))
+        .map(item => item.str);
+    }
+
     // ── French Grid Parser ────────────────────────────────────
     class FrenchGridParser extends InvoiceParser {
       get name() { return 'French Grid (Monnaie / Taux de change)'; }
 
-      parse(text) {
+      // Section patterns (regex tested against item.str)
+      static SECTION_22 = /22\s+monnaie\s+et\s+montant\s+total\s+factur[ée]/i;
+      static SECTION_23 = /23\s+taux\s+de\s+change/i;
+
+      parse(content) {
         const result = { currency: null, amount: null, conversionRate: null };
 
-        // Normalize whitespace and line breaks
-        const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        if (!content || content.length === 0) return result;
 
-        // Split into lines for grid-style matching
-        const lines = normalized.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        const rows = groupItemsIntoRows(content, 2);
 
-        // ── Section 22: Currency & Amount ──
-        const monnaieIdx = lines.findIndex(l =>
-          /22\s+monnaie\s+et\s+montant\s+total\s+factur[ée]/i.test(l)
-        );
-        
-        if (monnaieIdx !== -1) {
-          const currency = lines[monnaieIdx + 1];
-          if (currency) {
-            result.currency = currency;
+        // ── Find section header rows ──
+        const section22RowIdx = rows.findIndex(row => findItemInRow(row, FrenchGridParser.SECTION_22));
+        const section23RowIdx = rows.findIndex(row => findItemInRow(row, FrenchGridParser.SECTION_23));
+
+        // ── Section 22: Currency & Amount (expect exactly 2 values) ──
+        if (section22RowIdx !== -1) {
+          const headerItemIdx = rows[section22RowIdx].items.findIndex(item => FrenchGridParser.SECTION_22.test(item.str));
+          const headerItem = rows[section22RowIdx].items[headerItemIdx];
+          const xMin = headerItem.x;
+          const xMax = rows[section22RowIdx].items[headerItemIdx + 1]?.x || null;
+          const values = extractValuesBelowSection(rows, section22RowIdx, xMin, xMax);
+
+          if (values.length === 2) {
+            result.currency = values[0];
+            result.amount = parseFloat(values[1]);
           }
-         
-          const amount = lines[monnaieIdx + 2];
-          if (amount) {
-            result.amount = parseFloat(amount);
-          }
+          // If not exactly 2, both remain null
         }
 
-        // ── Section 23: Conversion Rate ──
-        const tauxIdx = lines.findIndex(l =>
-          /23\s+taux\s+de\s+change/i.test(l)
-        );
+        // ── Section 23: Conversion Rate (expect exactly 1 value) ──
+        if (section23RowIdx !== -1) {
+          const headerItemIdx = rows[section23RowIdx].items.findIndex(item => FrenchGridParser.SECTION_23.test(item.str));
+          const headerItem = rows[section23RowIdx].items[headerItemIdx];
+          const xMin = headerItem.x;
+          const xMax = rows[section23RowIdx].items[headerItemIdx + 1]?.x || null;
+          const values = extractValuesBelowSection(rows, section23RowIdx, xMin, xMax);
 
-        if (tauxIdx !== -1) {
-          const conversionRate = lines[tauxIdx + 8];
-          if (conversionRate) {
-            result.conversionRate = parseFloat(conversionRate);
+          if (values.length >= 1 && values.length <= 2) {
+            result.conversionRate = parseFloat(values[0]);
           }
+          // If not between 1 and 2, remains null
         }
 
         return result;
@@ -270,19 +344,32 @@
     ];
 
     // ── PDF text extraction ───────────────────────────────────
-    async function extractTextFromPdf(file) {
+    /**
+     * Extracts all TextContent items from a PDF, flattened across all pages.
+     * Each item includes positional data (x, y, width, height) from the pdf.js transform.
+     * @param {File} file
+     * @returns {Promise<Array<{str: string, x: number, y: number, width: number, height: number}>>}
+     */
+    async function extractContentFromPdf(file) {
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let fullText = '';
+      const allItems = [];
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const content = await page.getTextContent();
-        const pageText = content.items.map(item => item.str).join('\n');
-        fullText += pageText + '\n';
+        for (const item of content.items) {
+          allItems.push({
+            str: item.str,
+            x: item.transform[4],
+            y: item.transform[5],
+            width: item.width,
+            height: item.height
+          });
+        }
       }
 
-      return fullText;
+      return allItems;
     }
 
     // ── Main parse flow ──────────────────────────────────────
@@ -300,8 +387,8 @@
         };
 
         try {
-          const text = await extractTextFromPdf(file);
-          const parsed = parser.parse(text);
+          const content = await extractContentFromPdf(file);
+          const parsed = parser.parse(content);
 
           row.currency = parsed.currency;
           row.amount = parsed.amount;
