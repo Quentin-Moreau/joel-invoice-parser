@@ -245,8 +245,21 @@
     function groupItemsIntoRows(items, tolerance = 2) {
       if (items.length === 0) return [];
 
+      const seen = new Set();
+
+      const uniqueItems = items.filter(item => {
+        const key = `${item.x}|${item.y}|${item.str.trim()}`;
+
+        if (seen.has(key)) {
+          return false;
+        }
+
+        seen.add(key);
+        return true;
+      });
+
       // Sort by y descending (top of page = higher y), then by x ascending
-      const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+      const sorted = [...uniqueItems].sort((a, b) => b.y - a.y || a.x - b.x);
 
       const rows = [];
       for (const item of sorted) {
